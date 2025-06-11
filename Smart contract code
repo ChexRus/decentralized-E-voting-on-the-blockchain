@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+// Определение смарт-контракта для проведения голосования
+contract Voting {
+
+    // Структура для хранения данных о кандидате
+    struct Candidate {
+        string name;         // ФИО кандидата
+        uint256 voteCount;   // Количество голосов, отданных за кандидата
+        string description;  // Описание кандидата
+    }
+
+    // Структура для хранения данных о голосующем
+    struct Voter {
+        bool hasVoted;            // Флаг, указывающий, проголосовал ли участник
+        uint256 votedCandidateId; // Идентификатор кандидата, за которого был отдан голос
+        bool isRegistered;        // Флаг регистрации голосующего
+    }
+
+    address public admin; // Адрес администратора контракта
+
+    // Отображение для хранения информации о голосующих по их адресам
+    mapping(address => Voter) public voters;
+    
+    // Динамический массив для хранения списка кандидатов
+    Candidate[] public candidates;
+
+    // Динамический массив для хранения адресов зарегистрированных голосующих
+    address[] public registeredVoters;
+    
+    // Событие, регистрирующее добавление нового кандидата
+    event CandidateRegistered(string name, uint256 candidateId);
+    // Событие, регистрирующее регистрацию голосующего
+    event VoterRegistered(address indexed voter);
+    // Событие, регистрирующее факт голосования
+    event Voted(address indexed voter, uint256 candidateId);
+    // Событие, регистрирующее обновление информации о кандидате
+    event CandidateUpdated(uint256 candidateId, string description);
+
+    // Модификатор, ограничивающий доступ только администратору
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only the admin is allowed to perform this action");
+        _;
+    }
+
+    // Модификатор, проверяющий, что голосующий еще не отдал свой голос
+    modifier hasNotVoted() {
+        require(!voters[msg.sender].hasVoted, "The voter has already cast their vote");
+        _;
+    }
+
+    // Конструктор контракта, устанавливающий администратора
+    constructor() {
+        admin = msg.sender; // Администратором становится создатель контракта
+    }
+
+    // Функция регистрации нового кандидата администратором
+    function registerCandidate(string memory _name) public onlyAdmin {
+        candidates.push(Candidate({name: _name, voteCount: 0, description: ""}));
+        emit CandidateRegistered(_name, candidates.length - 1);
+    }
+
+    // Функция для записи или обновления описания кандидата по его порядковому номеру
+    function setCandidateDescription(uint256 _candidateId, string memory _description) public onlyAdmin {
+        require(_candidateId < candidates.length, "Invalid candidate ID");
+        candidates[_candidateId].description = _description;
+        emit CandidateUpdated(_candidateId, _description);
+    }
+
+    // Функция регистрации голосующего администратором
+    function registerVoter(address _voterAddress) public onlyAdmin {
+        require(_voterAddress != address(0), "Invalid voter address");
+        require(!voters[_voterAddress].isRegistered, "Voter is already registered");
+        voters[_voterAddress] = Voter({hasVoted: false, votedCandidateId: 0, isRegistered: true});
+        registeredVoters.push(_voterAddress); // Добавляем адрес в массив
+        emit VoterRegistered(_voterAddress);
+    }
+
+    // Функция голосования за кандидата по его порядковому номеру
+    function vote(uint256 _candidateId) public hasNotVoted {
+        require(voters[msg.sender].isRegistered, "Voter is not registered");
+        require(_candidateId < candidates.length, "Invalid candidate ID");
+        
+        voters[msg.sender].hasVoted = true;
+        voters[msg.sender].votedCandidateId = _candidateId;
+        candidates[_candidateId].voteCount++;
+
+        emit Voted(msg.sender, _candidateId);
+    }
+
+    // Функция получения списка всех кандидатов с проверкой на наличие зарегистрированных кандидатов
+    function getAllCandidates() public view returns (Candidate[] memory) {
+        require(candidates.length > 0, "No candidates registered yet");
+        return candidates;
+    }
+
+    // Функция для получения списка адресов всех зарегистрированных голосующих
+    function getAllRegisteredVoters() public view returns (address[] memory) {
+        require(registeredVoters.length > 0, "No voters registered yet");
+        return registeredVoters;
+    }
+
+    // Функция определения победителя голосования
+    function getWinner() public view returns (string memory winnerName, uint256 winnerVotes) {
+        require(candidates.length > 0, "No candidates registered");
+        uint256 maxVotes = 0;
+        uint256 winnerIndex = 0;
+
+        for (uint256 i = 0; i < candidates.length; i++) {
+            if (candidates[i].voteCount > maxVotes) {
+                maxVotes = candidates[i].voteCount;
+                winnerIndex = i;
+            }
+        }
+        return (candidates[winnerIndex].name, candidates[winnerIndex].voteCount);
+    }
+}
