@@ -1,0 +1,259 @@
+!pip install pycryptodome
+import random
+import hashlib
+from IPython.display import Image, display
+from Crypto.PublicKey import RSA
+from Crypto.Random import get_random_bytes
+from math import gcd
+
+# Отображение диаграммы схемы слепой подписи
+display(Image(url="https://en.m.wikipedia.org/wiki/File:Ethereum_logo.svg"))
+print("\033[94m=== Схема слепой подписи для голосования ===" + "\033[0m")
+print("Этот скрипт реализует схему слепой подписи для системы голосования.")
+print("Пожалуйста, запускайте ячейки по порядку для симуляции процесса.")
+
+# Определение цветовых кодов и символов
+RED = "\033[91m"   # Красный для ошибок
+GREEN = "\033[92m" # Зеленый для успехов
+YELLOW = "\033[93m" # Желтый для предупреждений и инструкций
+BLUE = "\033[94m"  # Синий для заголовков и подсказок
+RESET = "\033[0m"  # Сброс цвета
+
+SUCCESS = "✅"  # Символ успеха
+ERROR = "❌"    # Символ ошибки
+WARNING = "⚠️" # Символ предупреждения
+ARROW = "➡️"    # Стрелка для подсказок
+
+# Глобальные переменные для публичных параметров
+N = None
+e = None
+available_tokens = set(["token1", "token2", "token3"])
+
+# Функция для вычисления модульного обратного
+def modular_inverse(a, m):
+    def egcd(a, b):
+        if a == 0:
+            return b, 0, 1
+        else:
+            g, y, x = egcd(b % a, a)
+            return g, x - (b // a) * y, y
+    g, x, _ = egcd(a, m)
+    if g != 1:
+        raise ValueError("Модульный обратный не существует")
+    return x % m
+
+# Функция для генерации маскирующего фактора r
+def generate_blinding_factor(N):
+    while True:
+        # Генерация случайного числа с использованием Crypto.Random
+        r = int.from_bytes(get_random_bytes(32), 'big') % N
+        if gcd(r, N) == 1:
+            return r
+
+# Функция для генерации открытого ключа e
+def generate_public_exponent(phi_N):
+    while True:
+        e = int.from_bytes(get_random_bytes(4), 'big') | 1 
+        if 2 < e < phi_N and gcd(e, phi_N) == 1:
+            return e
+    raise ValueError("Не удалось сгенерировать подходящий открытый ключ e")
+
+# Функция для получения слепой подписи
+def get_blind_signature(B, token, d, N):
+    global available_tokens
+    if token not in available_tokens:
+        return None
+    available_tokens.remove(token)
+    S_B = pow(B, d, N)
+    return S_B
+
+# Основной цикл программы
+while True:
+    print("\n" + BLUE + "=== Главное меню ===" + RESET)
+    print("0. \033[1mЭтап 0: Администратор (генерация RSA параметров)\033[0m")
+    print("1. \033[1mЭтап 1: Участник (ввод токена и маскировка адреса)\033[0m")
+    print("2. \033[1mЭтап 2: Администратор (получение слепой подписи)\033[0m")
+    print("3. \033[1mЭтап 3: Участник (снятие маскировки)\033[0m")
+    print("4. \033[1mЭтап 4: Администратор (проверка голоса)\033[0m")
+    print("5. \033[1mВыход\033[0m")
+    choice = input(BLUE + ARROW + " Введите выбор: " + RESET)
+
+    if choice == "0":
+        print(BLUE + "=== Этап 0: Настройка администратора ===" + RESET)
+        print("Администратор, генерация RSA параметров с помощью pycryptodome.")
+
+        try:
+            # Генерация RSA ключевой пары (2048 бит для безопасности)
+            key = RSA.generate(bits=2048)
+            p = key.p  # Первое простое число
+            q = key.q  # Второе простое число
+            N_temp = key.n  # Модуль N = p * q
+            phi_N = (p - 1) * (q - 1)
+
+            # Генерация открытого ключа e
+            e = generate_public_exponent(phi_N)
+
+            # Вычисление секретного ключа d
+            d = modular_inverse(e, phi_N)
+
+            # Установка глобальных переменных
+            N = N_temp
+            e = e
+
+            # Вывод параметров для записи
+            print("\n" + GREEN + SUCCESS + " Параметры сгенерированы успешно." + RESET)
+            print(f"p = {p}")
+            print(f"q = {q}")
+            print(f"d = {d}")
+            print("\nПубличные параметры (передайте всем участникам):")
+            print(f"N = {N_temp}")
+            print(f"e = {e}")
+            print("\n" + YELLOW + WARNING + " Эти параметры не сохраняются в системе. Запомните их!" + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+
+        except Exception as ex:
+            print(RED + ERROR + f" Ошибка при генерации ключей: {ex}" + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+    elif choice == "1":
+        print(BLUE + "=== Этап 1: Участник (ввод токена и маскировка адреса) ===" + RESET)
+        if not available_tokens:
+            print(RED + ERROR + " Нет доступных токенов" + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        try:
+            if N is None or e is None:
+                N = int(input(BLUE + ARROW + " Введите публичный модуль N: " + RESET))
+                e = int(input(BLUE + ARROW + " Введите публичный ключ e: " + RESET))
+        except ValueError:
+            print(RED + ERROR + " Ошибка: введите целые числа для N и e." + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        token = input(BLUE + ARROW + " Введите ваш токен: " + RESET)
+        if token not in available_tokens:
+            print(RED + ERROR + " Недействительный токен" + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        # Ввод адреса кошелька MetaMask
+        A = input(BLUE + ARROW + " Введите ваш блокчейн-адрес: " + RESET)
+
+        # Преобразование адреса в число с использованием хэша
+        try:
+            A_num = int(hashlib.sha256(A.encode()).hexdigest(), 16) % N
+        except ValueError:
+            print(RED + ERROR + " Ошибка: некорректный адрес." + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        # Генерация маскирующего фактора r
+        try:
+            r = generate_blinding_factor(N)
+            print(GREEN + SUCCESS + f" Сгенерирован маскирующий фактор r: {r}" + RESET)
+        except Exception as ex:
+            print(RED + ERROR + f" Ошибка при генерации r: {ex}" + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        # Вычисление замаскированного адреса B
+        B = (A_num * pow(r, e, N)) % N
+        print(GREEN + SUCCESS + f" Замаскированный адрес B: {B}" + RESET)
+        print(GREEN + SUCCESS + f" Токен для этапа 2: {token}" + RESET)
+
+        input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+        print("\n" + "-" * 40 + "\n")
+
+    elif choice == "2":
+        print(BLUE + "=== Этап 2: Администратор (получение слепой подписи) ===" + RESET)
+        try:
+            N = int(input(BLUE + ARROW + " Введите публичный модуль N: " + RESET))
+            B = int(input(BLUE + ARROW + " Введите замаскированный адрес B: " + RESET))
+            token = input(BLUE + ARROW + " Введите токен, полученный на этапе 1: " + RESET)
+            d = int(input(BLUE + ARROW + " Введите секретный ключ d (с бумаги): " + RESET))
+        except ValueError:
+            print(RED + ERROR + " Ошибка: введите целые числа для N, B и d." + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        # Получение слепой подписи
+        S_B = get_blind_signature(B, token, d, N)
+        if S_B is None:
+            print(RED + ERROR + " Не удалось получить слепую подпись. Проверьте токен." + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+        print(GREEN + SUCCESS + f" Слепая подпись S_B: {S_B}" + RESET)
+
+        input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+        print("\n" + "-" * 40 + "\n")
+
+    elif choice == "3":
+        print(BLUE + "=== Этап 3: Участник (снятие маскировки) ===" + RESET)
+        try:
+            N = int(input(BLUE + ARROW + " Введите публичный модуль N: " + RESET))
+            S_B = int(input(BLUE + ARROW + " Введите полученную слепую подпись S_B: " + RESET))
+            r = int(input(BLUE + ARROW + " Введите ваш маскирующий фактор r: " + RESET))
+        except ValueError:
+            print(RED + ERROR + " Ошибка: введите целые числа для N, S_B и r." + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        # Вычисление обратного r
+        try:
+            inv_r = modular_inverse(r, N)
+        except ValueError:
+            print(RED + ERROR + " Ошибка: r не имеет обратного по модулю N." + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        # Вычисление подписи S
+        S = (S_B * inv_r) % N
+        print(GREEN + SUCCESS + f" Размаскированная подпись S: {S}" + RESET)
+
+        input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+        print("\n" + "-" * 40 + "\n")
+
+    elif choice == "4":
+        print(BLUE + "=== Этап 4: Администратор (проверка голоса) ===" + RESET)
+        try:
+            N = int(input(BLUE + ARROW + " Введите публичный модуль N: " + RESET))
+            e = int(input(BLUE + ARROW + " Введите публичный ключ e: " + RESET))
+            A_vote = input(BLUE + ARROW + " Введите адрес голосования A: " + RESET)
+            S_vote = int(input(BLUE + ARROW + " Введите подпись S: " + RESET))
+            A_num = int(hashlib.sha256(A_vote.encode()).hexdigest(), 16) % N
+        except ValueError:
+            print(RED + ERROR + " Ошибка: адрес должен содержать корректные символы, а N, e и подпись — целые числа." + RESET)
+            input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+            print("\n" + "-" * 40 + "\n")
+            continue
+
+        # Проверка подписи
+        A_check = pow(S_vote, e, N)
+        if A_check == A_num:
+            print(GREEN + SUCCESS + f" Избиратель с адресом {A_vote} действителен" + RESET)
+        else:
+            print(RED + ERROR + " Недействительная подпись" + RESET)
+
+        input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+        print("\n" + "-" * 40 + "\n")
+
+    elif choice == "5":
+        print(GREEN + SUCCESS + " Выход из программы" + RESET)
+        break
+    else:
+        print(RED + ERROR + " Недопустимый выбор" + RESET)
+        input(YELLOW + "Нажмите Enter для продолжения..." + RESET)
+        print("\n" + "-" * 40 + "\n")
